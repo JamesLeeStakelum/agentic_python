@@ -1,0 +1,146 @@
+
+# Python Code Style Guide: Readability & Maintainability First
+
+Our goal is to generate Python code that is not just functional, but **exceptionally clear, easy to understand for humans, and robust.** This guide outlines the mandatory style preferences to achieve that. All code should adhere to the principles of "The Zen of Python" (PEP 20).
+
+---
+
+## Core Motivations
+
+* **Readability:** Code should be immediately comprehensible. As the Zen of Python states, "Readability counts."
+* **Explicitness:** Code should be explicit in its intent. "Explicit is better than implicit."
+* **Low Cognitive Load:** Minimizing the mental effort required for anyone (or any future AI agent) to grasp the code's logic.
+* **Maintainability:** Writing clean, documented, and well-structured code simplifies future updates and debugging.
+* **Minimize Dependencies:** Relying on the Python Standard Library reduces setup complexity and increases portability.
+* **Cross-Platform Compatibility:** Ensure generated code is robust and behaves predictably across Windows, macOS, and Linux environments.
+
+---
+
+## Mandatory Python Coding Instructions
+
+When generating Python code, **you MUST strictly adhere to the following guidelines**:
+
+### 1. Be Explicit and Pythonic
+
+* **Follow PEP 8**: The official [PEP 8 -- Style Guide for Python Code](https://peps.python.org/pep-0008/) is our foundational standard for formatting.
+* **Type Hinting is MANDATORY**:
+    * **ALWAYS** use type hints for all function arguments and return values.
+    * For complex types, use the `typing` module (`List`, `Dict`, `Tuple`, `Optional`, `Any`, etc.).
+    * This is the most critical rule for ensuring clarity and maintainability.
+    * **DO THIS**:
+        ```python
+        from typing import List, Dict, Optional
+
+        def process_data(user_list: List[Dict[str, any]], config: Optional[dict] = None) -> str:
+            # ... function logic ...
+            return "processed"
+        ```
+    * **AVOID THIS**:
+        ```python
+        def process_data(user_list, config = None):
+            # ... ambiguous function logic ...
+        ```
+* **Variable Declarations**: **ALWAYS** declare variables at the top of their functional scope (right after the function signature) when possible. This provides a clear manifest of the state the function will manage.
+    * **DO THIS**:
+        ```python
+        def generate_report(data: dict) -> str:
+            report_text: str = ""
+            item_count: int = 0
+            is_finalized: bool = False
+
+            # ... function logic ...
+        ```
+
+### 2. Attribute and Item Access (Clarity over Chains)
+
+* **Break Down Complex Chains**: If accessing a nested attribute or dictionary key involves more than two levels, **ALWAYS** assign intermediate objects to well-named local variables for improved clarity.
+* **DO THIS**:
+    ```python
+    user_details: dict = document.get('user', {}).get('details', {})
+    user_name: str = user_details.get('name', 'Unknown')
+    ```
+* **AVOID THIS**: A long, unbroken, and hard-to-debug chain.
+    ```python
+    # AVOID
+    user_name = document.get('user', {}).get('details', {}).get('name', 'Unknown')
+    ```
+
+### 3. State Management (Avoid `global`)
+
+* **No `global` Keyword**:
+    * **DO NOT** use the `global` keyword to modify variables outside of the current scope.
+    * Functions should operate on the data passed to them as arguments and return results explicitly.
+* **Pure Functions**: Strive for functions that are **pure**: their output depends only on their input arguments, and they have no side effects. This makes code predictable, testable, and maintainable.
+    * **DO THIS (Pass state explicitly)**:
+        ```python
+        def update_config(config: dict, key: str, value: any) -> dict:
+            new_config = config.copy()
+            new_config[key] = value
+            return new_config
+
+        main_config = {'retries': 3}
+        main_config = update_config(main_config, 'timeout', 90)
+        ```
+    * **AVOID THIS (Modifying global state)**:
+        ```python
+        main_config = {'retries': 3}
+
+        def update_config_global(key: str, value: any) -> None:
+            global main_config # AVOID
+            main_config[key] = value
+
+        update_config_global('timeout', 90)
+        ```
+
+### 4. Dependency Management
+
+* **Prefer the Standard Library**:
+    * **AVOID using third-party packages (from PyPI, etc.) if at all possible.** Prioritize using the **Python Standard Library**.
+    * The goal is to keep the codebase minimal, reduce external dependencies, and simplify deployment.
+    * **ONLY use a third-party library if a standard library alternative is demonstrably more complex or non-existent for a critical function.** If a third-party module is absolutely necessary, it **must** be explicitly justified in comments.
+
+### 5. String Manipulation over Complex Regex
+
+* **Use String Methods First**:
+    * **DO NOT** use complex or nested regular expressions for tasks where Python's built-in string methods will suffice (e.g., `startswith()`, `endswith()`, `split()`, `partition()`, `find()`, slicing).
+    * **Reasons**: String methods are often more readable, faster, and less error-prone than a complex regex.
+    * **Exception**: Simple substitution patterns with `re.sub()` are acceptable for straightforward text transformations.
+
+### 6. File and Operating System Compatibility
+
+* **Use `pathlib` for All Path Operations**:
+    * **ALWAYS** use the `pathlib` module for handling file system paths. It automatically handles OS-specific differences (like path separators).
+    * **DO THIS**:
+        ```python
+        from pathlib import Path
+
+        data_folder = Path("./data")
+        output_file = data_folder / "reports" / "report.txt"
+        ```
+    * **AVOID THIS**: Manual string concatenation for paths.
+        ```python
+        # AVOID
+        output_file = "./data/reports/report.txt"
+        ```
+* **File Naming Conventions**: **ALWAYS** use **lowercase names with underscores (`snake_case`) for all files**. This ensures maximum portability across various operating systems.
+* **Line Endings**: **ALWAYS** use **Unix-style line endings (`\n`)** in code. Python's file handling (`open()`) correctly manages OS-native line endings by default (a feature called "universal newlines"), so you should not manually write `\r\n`. The `write_file` utility you have correctly enforces this.
+
+### 7. General Readability and Maintainability
+
+* **Descriptive Naming**: Use clear, descriptive, `snake_case` names for all variables and functions. Use `PascalCase` for classes.
+* **Concise Comments**: Add `#` comments to explain the "why" of any non-obvious code, not the "what".
+* **Docstrings are Mandatory**: **Every** function and class **MUST** have a docstring explaining its purpose, arguments (`Args:`), and return value (`Returns:`).
+    * **DO THIS**:
+        ```python
+        def generate_random_string(length: int = 20) -> str:
+            """Generates a random alphanumeric string of a given length.
+
+            Args:
+                length: The desired length of the random string.
+
+            Returns:
+                A random alphanumeric string.
+            """
+            # ... function logic ...
+        ```
+* **Single Responsibility Principle**: Keep functions and classes focused on a single, well-defined responsibility. If a function is doing too much, break it down.
