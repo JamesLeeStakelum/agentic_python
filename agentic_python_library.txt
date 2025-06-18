@@ -225,127 +225,141 @@ def write_file(file_path: str, content: str) -> bool:
 import re
 from typing import Optional
 
+
+import html
+
 def extract_text_between_tags(
     text: str,
     tag: str,
-    *,
-    strict: bool = False
+    strict: bool = False,
+    remove_model_tags: bool = False
 ) -> str:
     """
-    Extract the content inside a pair of XML-style tags (<answer>, <comments>, …)
-    from an LLM response, coping gracefully with the formatting mistakes LLMs
-    often make.
+    Extracts content from LLM responses, synthesizing the best of multiple robust approaches.
 
-    Parameters
-    ----------
-    text : str
-        The raw LLM response.
-    tag : str
-        The tag name to extract (case-insensitive, e.g. "answer").
-    strict : bool, default False
-        • False  – flexible: returns best-effort content even if only one tag
-          is present or tags are malformed.  
-        • True   – strict: content is returned **only** when a well-formed
-          opening/closing pair exists in the correct order.
+    This version is fully procedural, highly efficient, and includes optional features
+    inspired by analysis of alternative solutions.
 
-    Returns
-    -------
-    str
-        Cleaned content from between the tags, or the empty string if nothing
-        reliable can be extracted under the chosen strictness.
+    Args:
+        text (str): The LLM's response string.
+        tag (str): The name of the tag to extract (e.g., 'answer', 'comments').
+        strict (bool, optional): If True, requires both opening and closing tags. Defaults to False.
+        remove_model_tags (bool, optional): If True, removes <model>...</model> blocks
+                                            before extraction. Defaults to False.
+
+    Returns:
+        str: The extracted and cleaned content.
     """
+    if not text or not tag:
+        return ""
+
     lc_tag = tag.lower()
-    open_tag = f"<{lc_tag}>"
-    close_tag = f"</{lc_tag}>"
+    open_tag_canonical = f"<{lc_tag}>"
+    close_tag_canonical = f"</{lc_tag}>"
 
-    temp = text
+    temp_text = str(text)
 
-    # ------------------------------------------------------------------
-    # 1. Normalise tag variants such as "< answer  >" or attributes like
-    #    "<answer role=\"assistant\"> …"
-    # ------------------------------------------------------------------
-    open_re  = re.compile(rf"<\s*{re.escape(lc_tag)}\b[^>]*>",  flags=re.I)
-    close_re = re.compile(rf"<\s*/\s*{re.escape(lc_tag)}\b[^>]*>", flags=re.I)
-    temp = open_re.sub(open_tag,  temp)
-    temp = close_re.sub(close_tag, temp)
+    # --- Phase 1: Global Sanitization ---
+    temp_text = html.unescape(temp_text)
 
-    # Extra forgiveness for the common “answer(s)” slip-ups
-    if lc_tag == "answer":
-        temp = re.sub(r"<\s*/?\s*answers?\b[^>]*>",  lambda m:
-                      close_tag if m.group(0).startswith("</") else open_tag,
-                      temp, flags=re.I)
-        temp = re.sub(r"<\s*/?\s*answe?r\b[^>]*>",  lambda m:
-                      close_tag if m.group(0).startswith("</") else open_tag,
-                      temp, flags=re.I)
+    # --- Phase 2: Container Normalization (Style from Solution C) ---
+    trimmed_text = temp_text.strip()
+    for fence in ('```', '~~~'):
+        open_fence = f"{fence}{lc_tag}"
+        if trimmed_text.lower().startswith(open_fence) and trimmed_text.endswith(fence):
+            lines = trimmed_text.split('\n')
+            # Ensure there is content between the fences
+            if len(lines) >= 3:
+                content = "\n".join(lines[1:-1])
+                temp_text = f"{open_tag_canonical}\n{content}\n{close_tag_canonical}"
+                break
 
-    temp_lc = temp.lower()
+    # --- Phase 3: Intelligent Tag Normalization (Procedural and Efficient) ---
+    output_parts = []
+    last_pos = 0
+    answer_variations = {'answe', 'anser', 'answers'} if lc_tag == 'answer' else set()
 
-    # ------------------------------------------------------------------
-    # 2. Special handling when we’re looking for <answer> … </answer>
-    # ------------------------------------------------------------------
-    if lc_tag == "answer":
-        # 2a. Strip any <model> … </model> blocks completely
-        temp = re.sub(r"<\s*model\b[^>]*>",  "<model>",  temp, flags=re.I)
-        temp = re.sub(r"<\s*/\s*model\b[^>]*>", "</model>", temp, flags=re.I)
-        temp  = re.sub(r"<model>.*?</model>", "", temp, flags=re.I | re.S)
-        temp_lc = temp.lower()
+    while last_pos < len(temp_text):
+        start_bracket = temp_text.find('<', last_pos)
+        if start_bracket == -1:
+            output_parts.append(temp_text[last_pos:])
+            break
+        output_parts.append(temp_text[last_pos:start_bracket])
+        end_bracket = temp_text.find('>', start_bracket + 1)
+        if end_bracket == -1:
+            output_parts.append('<')
+            last_pos = start_bracket + 1
+            continue
+        tag_content = temp_text[start_bracket + 1 : end_bracket].strip()
+        is_closing_tag = tag_content.startswith('/')
+        tag_name_part = tag_content[1:].strip() if is_closing_tag else tag_content
+        tag_name = tag_name_part.split(' ', 1)[0].lower()
+        is_target_tag = (tag_name == lc_tag) or \
+                        (lc_tag == 'answer' and tag_name in answer_variations)
+        if is_target_tag:
+            output_parts.append(close_tag_canonical if is_closing_tag else open_tag_canonical)
+        else:
+            output_parts.append(temp_text[start_bracket : end_bracket + 1])
+        last_pos = end_bracket + 1
+    temp_text = "".join(output_parts)
 
-        # 2b. If </answer> still missing but <comments> or <thinking> follows,
-        #     inject the missing close tag before that boundary.
-        if close_tag not in temp_lc:
-            # Normalise boundary tags first
-            temp = re.sub(r"<\s*comments\b[^>]*>", "<comments>", temp, flags=re.I)
-            temp = re.sub(r"<\s*thinking\b[^>]*>", "<thinking>", temp, flags=re.I)
-            temp_lc = temp.lower()
+    # --- Phase 4: Optional Model Tag Removal (Feature from C, efficient implementation) ---
+    if remove_model_tags:
+        output_parts = []
+        last_pos = 0
+        text_lc = temp_text.lower()
+        while last_pos < len(temp_text):
+            start_pos = text_lc.find("<model>", last_pos)
+            if start_pos == -1:
+                output_parts.append(temp_text[last_pos:])
+                break
+            end_pos = text_lc.find("</model>", start_pos + 7)
+            if end_pos == -1:
+                output_parts.append(temp_text[last_pos:])
+                break
+            output_parts.append(temp_text[last_pos:start_pos])
+            last_pos = end_pos + 8 # length of </model> is 8
+        temp_text = "".join(output_parts)
 
-            pos_comments  = temp_lc.find("<comments>")
-            pos_thinking  = temp_lc.find("<thinking>")
-            boundary_pos: Optional[int] = None
-            if pos_comments != -1 and (pos_thinking == -1 or pos_comments < pos_thinking):
-                boundary_pos = pos_comments
-            elif pos_thinking != -1:
-                boundary_pos = pos_thinking
+    # --- Phase 5: Robust Extraction ---
+    temp_text_lc = temp_text.lower()
+    s_pos = temp_text_lc.find(open_tag_canonical)
+    e_pos = -1
+    if s_pos >= 0:
+        e_pos = temp_text_lc.find(close_tag_canonical, s_pos + len(open_tag_canonical))
 
-            if boundary_pos is not None:
-                temp = temp[:boundary_pos] + close_tag + temp[boundary_pos:]
-                temp_lc = temp.lower()
+    extracted_content = ""
+    if s_pos >= 0 and e_pos >= 0:
+        extracted_content = temp_text[s_pos + len(open_tag_canonical):e_pos]
+    elif not strict and s_pos >= 0:
+        extracted_content = temp_text[s_pos + len(open_tag_canonical):]
+        temp_extracted_lc = extracted_content.lower()
+        cpos = temp_extracted_lc.find('<comments>')
+        tpos = temp_extracted_lc.find('<thinking>')
+        boundary_pos = -1
+        if cpos >= 0 and (tpos < 0 or cpos < tpos):
+            boundary_pos = cpos
+        elif tpos >= 0:
+            boundary_pos = tpos
+        if boundary_pos >= 0:
+            extracted_content = extracted_content[:boundary_pos]
 
-    # ------------------------------------------------------------------
-    # 3. Actual extraction logic
-    # ------------------------------------------------------------------
-    start = temp_lc.find(open_tag)
-    end   = temp_lc.find(close_tag)
+    # --- Phase 6: Recursive Cleanup (Readability from Solution C) ---
+    while True:
+        content_before_cleanup = extracted_content.strip()
+        cleaned_content = content_before_cleanup
+        for fence in ('```', '~~~'):
+            if cleaned_content.startswith(fence) and cleaned_content.endswith(fence):
+                lines = cleaned_content.split('\n')
+                if len(lines) >= 3:
+                    cleaned_content = "\n".join(lines[1:-1])
+                    break # A change was made, restart the loop
+        # If no change was made in the inner loop, we are done
+        if cleaned_content == content_before_cleanup:
+            break
+        extracted_content = cleaned_content
 
-    if start != -1 and end != -1 and end > start:
-        # Perfect opening/closing pair
-        content = temp[start + len(open_tag) : end]
-
-    elif strict:
-        return ""                               # Strict mode → reject malformed
-
-    elif start != -1 and end == -1:
-        # Only opening tag present (flexible mode)
-        content = temp[start + len(open_tag):]
-        if lc_tag == "answer":                  # Cut at semantic boundaries
-            boundaries = ["<comments>", "<thinking>", "<model>"]
-            lower = content.lower()
-            stops = [lower.find(b) for b in boundaries if lower.find(b) != -1]
-            cut   = min(stops) if stops else len(content)
-            content = content[:cut]
-
-    elif start == -1 and end != -1 and not strict:
-        # Only closing tag present (flexible mode)
-        content = temp[:end]
-
-    else:
-        return ""                               # Nothing usable found
-
-    # ------------------------------------------------------------------
-    # 4. Cleanup & return
-    # ------------------------------------------------------------------
-    content = content.strip()
-    content = remove_non_ascii(content)
-    return content
+    return extracted_content.strip()
 
 
 import re
@@ -480,57 +494,87 @@ def create_temp_folder(folder_path: str = "./temp") -> None:
 
 import time
 import sys
-from pathlib import Path # Explicitly import Path
+from pathlib import Path
 
-def clear_temp_folder(threshold: float = 1.0, folder: str | Path = "./temp") -> None:
+def clear_temp_folder(
+    threshold: float = 3600.0,
+    folder: str | Path = "./temp",
+    age_based_on: str = 'modification',
+    dry_run: bool = False
+) -> None:
     """
-    Delete files older than `threshold` seconds from `folder`.
+    Deletes files from a folder based on their age, with flexible timestamp choices and a safe dry-run mode.
 
-    Parameters
-    ----------
-    threshold : float
-        Age cutoff in seconds. Non‐positive values default to 1 second.
-    folder : str or Path
-        Directory to clean. Defaults to "./temp".
+    Args:
+        threshold (float): Age cutoff in seconds. Files older than this will be deleted.
+                           Defaults to 3600.0 (1 hour). Non-positive values are not allowed.
+        folder (str or Path): Directory to clean. Defaults to "./temp".
+        age_based_on (str): The timestamp to use for the age check. Defaults to 'modification'.
+                            - 'modification': Use the last modification time (st_mtime). Most common.
+                            - 'creation': Use the creation time. Uses st_birthtime on Unix/macOS if available,
+                                          falling back to st_ctime (creation on Windows, metadata change on Unix).
+                            - 'metadata_change': Use the last metadata change time (st_ctime on Unix).
+        dry_run (bool): If True, prints which files would be deleted without actually deleting them.
+                        Defaults to False.
     """
-    # Normalize inputs
+    # --- 1. Input Validation and Normalization ---
     if threshold <= 0:
-        threshold = 1.0
+        print("Error: Threshold must be a positive value.", file=sys.stderr)
+        return
     folder_path = Path(folder)
+    valid_age_options = ('modification', 'creation', 'metadata_change')
+    if age_based_on not in valid_age_options:
+        print(f"Error: Invalid 'age_based_on' option. Choose from {valid_age_options}", file=sys.stderr)
+        return
 
-    # Nothing to do if the directory doesn’t exist or isn't a directory
-    # This also implicitly handles permission errors for checking existence/type
     if not folder_path.is_dir():
-        # Optional: You could add a warning here if you expect the folder to exist
-        # print(f"Warning: Folder '{folder_path}' does not exist or is not a directory. Skipping clear.", file=sys.stderr)
+        if dry_run: # Only print on dry-run to avoid noise for non-existent folders
+            print(f"DRY RUN: Folder '{folder_path}' does not exist or is not a directory. Nothing to do.")
         return
 
     now = time.time()
+    if dry_run:
+        print(f"--- DRY RUN MODE ---")
+        print(f"Checking folder: '{folder_path}'")
+        print(f"Will delete files older than {threshold} seconds based on '{age_based_on}' time.")
+        print("---")
 
+    # --- 2. Iterate and Check Files ---
     for entry in folder_path.iterdir():
-        # Skip subdirectories and non-files
-        # is_file() checks if it's a regular file (not a dir, symlink, etc.)
         if not entry.is_file():
             continue
 
-        # Obtain inode change time (ctime)
-        # Use a try-except here because stat() can fail for various reasons (e.g., broken symlink)
         try:
-            ctime = entry.stat().st_ctime
+            stat_result = entry.stat()
+            file_time = 0
+            # --- 2a. Select timestamp based on user's choice ---
+            if age_based_on == 'modification':
+                file_time = stat_result.st_mtime
+            elif age_based_on == 'metadata_change':
+                file_time = stat_result.st_ctime
+            elif age_based_on == 'creation':
+                try:
+                    # Best option for creation time, but not on all systems
+                    file_time = stat_result.st_birthtime
+                except AttributeError:
+                    # Fallback for systems without birthtime (e.g., some Linux, Windows)
+                    # On Windows, ctime is creation time. On Linux, it's metadata change time.
+                    file_time = stat_result.st_ctime
         except OSError as e:
-            # Print a warning but continue processing other files
-            print(f"Warning: cannot get status for '{entry!s}': {e}", file=sys.stderr)
+            print(f"Warning: Cannot get status for '{entry!s}': {e}", file=sys.stderr)
             continue
 
-        # If older than threshold, delete
-        if (now - ctime) > threshold:
+        # --- 2b. Compare age and take action ---
+        if (now - file_time) > threshold:
+            if dry_run:
+                age_seconds = now - file_time
+                print(f"DRY RUN: Would delete '{entry}' (Age: {age_seconds:.0f}s)")
+                continue
+
             try:
-                # Uncomment the next line to log deletions:
-                # print(f"Deleting old file: {entry}")
                 entry.unlink() # Deletes the file
             except OSError as e:
-                # Print a warning but continue processing other files
-                print(f"Warning: could not delete '{entry!s}': {e}", file=sys.stderr)
+                print(f"Warning: Could not delete '{entry!s}': {e}", file=sys.stderr)
 
 from pathlib import Path
 import os # Still needed for os.sep if you explicitly rstrip by it, or for os.PathLike if using that type hint
