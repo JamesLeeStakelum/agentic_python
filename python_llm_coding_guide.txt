@@ -255,3 +255,71 @@ These five principles underpin the development of intelligent, self-improving LL
 * **Configuration**: Sensitive data (e.g., API keys) **must** be stored in a separate configuration file (e.g., `openrouter_config.txt`). **Never hardcode credentials.**
 * **Logging**: LLM calls should generate logs in the `./logs` directory for debugging and monitoring.
 * **Output Consistency**: Strict adherence to the tag-based output formats (e.g., `<answer>`, `<comments>`) is crucial for the reliability of the `extract_text_between_tags()` function.
+
+
+Part 3: Final Verification Process
+This section outlines the mandatory quality assurance process that must be executed before any code is considered complete.
+
+### **6. Mandatory Code Generation and Verification Protocol**
+
+After generating the initial draft of the code in response to a request, you **MUST** follow this rigorous, iterative verification protocol. Do not present any code as final until it has successfully passed this entire process.
+
+The protocol consists of four phases. You will cycle through Phases 2 and 3 until the code is perfect.
+
+#### **6.1 Phase 1: Initial Code Generation**
+
+First, generate the complete code required to fulfill the user's request. During this phase, you must adhere strictly to all rules in the Project Library Guide and the Coding Style Guide. This initial output is considered a "candidate draft."
+
+#### **6.2 Phase 2: Iterative Verification Loop**
+
+You will now enter a self-correction loop. The goal is to perform a full pass of all three checks below (Syntax, Walk-through, and Desk-Check) without finding any errors.
+
+##### **Verification Pass: Step A - Syntax Check**
+
+* **Action**: Perform a strict syntax check on the entire candidate draft.
+* **Goal**: Identify any and all syntax errors, parsing errors, incorrect function calls, or use of undefined variables.
+* **Result**:
+    * If any syntax errors are found, **stop this loop immediately and proceed to Phase 3: Problem Resolution.**
+    * If syntax is perfect, proceed to Step B.
+
+##### **Verification Pass: Step B - Code Walk-through (Logical Review)**
+
+* **Action**: Perform a logical walk-through of the code you just wrote. Explain it to yourself, block by block.
+* **Goal**: Re-evaluate the logic against the original request. For each function or major code block, ask:
+    * "What is the specific purpose of this block?"
+    * "Does its logic correctly implement the requirements?"
+    * "Are there any edge cases I didn't account for?"
+    * "Does it violate any rules from the style guide (e.g., using `global`, not using type hints)?"
+* **Result**:
+    * If you identify a logical flaw, a misinterpretation of the request, or a style guide violation, **stop this loop immediately and proceed to Phase 3: Problem Resolution.**
+    * If the logic appears sound, proceed to Step C.
+
+##### **Verification Pass: Step C - Desk-Check (Multi-Case Execution Trace)**
+
+* **Action**: Perform a desk-check by defining and tracing several diverse test cases.
+* **Goal**: Verify that the code's logic is robust and correctly handles typical inputs, edge cases, and potential error conditions.
+* **Execution Trace Steps**:
+    1.  **Prepare Test Cases**: Before tracing, define a set of at least **three distinct test cases**. For each case, state the sample inputs and the *expected* output. The cases **MUST** include:
+        * **a. The "Happy Path" Case**: A standard, typical input that tests the primary functionality of the code.
+        * **b. An "Edge Case"**: An input that tests the boundaries of the logic. Examples: an empty list, a file with zero or one lines, a value of `0`, an empty string, or a `None` value if plausible.
+        * **c. An "Invalid/Error Case"**: An input designed to test the code's error handling or resilience to malformed data. Examples: a missing required dictionary key, data in the wrong format, etc.
+    2.  **Trace Execution for Each Case**: For each test case you defined, perform a full trace:
+        * **a. State the Case**: Clearly identify which test case you are tracing (e.g., "Tracing Edge Case: Empty List input").
+        * **b. Track Key Variables**: Create a mental table to track the state of the most important variables for the current trace.
+        * **c. Trace Line-by-Line**: Follow the execution path for the current test case's input, updating the variable states at each step.
+        * **d. Verify the Outcome**: Compare the actual outcome of the trace with the expected outcome you defined for this case.
+* **Result**:
+    * If the actual outcome of **any** test case trace does not match its expected outcome, **stop this loop immediately and proceed to Phase 3: Problem Resolution.**
+    * If **all** defined test cases pass successfully, this desk-check is complete. Since all three checks (A, B, and C) passed, the verification loop is finished. **Proceed to Phase 4: Final Output.**
+
+#### **6.3 Phase 3: Problem Resolution**
+
+1.  **Identify the Flaw**: If you are in this phase, it is because a check in Phase 2 has failed. First, clearly state the problem you discovered (e.g., "Syntax error on line 15," "Logical error in the for loop that would miss the last item," "Desk-check revealed the total was calculated incorrectly on the Edge Case test.").
+2.  **Implement the Fix**: Modify the code to correct the flaw.
+3.  **Repeat the Process**: After modifying the code, you **MUST** return to the beginning of **Phase 2** and start a new verification loop from Step A with the *newly modified code*. Do not skip any steps.
+
+#### **6.4 Phase 4: Final Output**
+
+You will only reach this phase after a version of the code has passed all three checks in a single, uninterrupted Phase 2 verification pass.
+
+The final, validated, and verified code is now ready to be presented to the user.
